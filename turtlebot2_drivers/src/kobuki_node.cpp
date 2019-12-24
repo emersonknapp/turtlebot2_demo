@@ -39,6 +39,7 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rcutils/logging_macros.h"
+#include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_ros/transform_broadcaster.h"
@@ -74,6 +75,8 @@ int main(int argc, char * argv[])
     "cmd_vel", cmd_vel_qos_profile, cmdVelCallback);
   auto odom_pub = node->create_publisher<nav_msgs::msg::Odometry>("odom", odom_and_imu_qos_profile);
   auto imu_pub = node->create_publisher<sensor_msgs::msg::Imu>("imu", odom_and_imu_qos_profile);
+  auto battery_pub = node->create_publisher<sensor_msgs::msg::BatteryState>(
+      "battery", rclcpp::SensorDataQoS());
   tf2_ros::TransformBroadcaster br(node);
 
   kobuki::Parameters parameters;
@@ -109,23 +112,31 @@ int main(int argc, char * argv[])
 
   rclcpp::WallRate loop_rate(20);
 
+  // Preconstruct messages for reuse
   auto odom_msg = std::make_shared<nav_msgs::msg::Odometry>();
   odom_msg->header.frame_id = odom_frame;
   odom_msg->child_frame_id = base_link_frame;
+
   auto imu_msg = std::make_shared<sensor_msgs::msg::Imu>();
   imu_msg->header.frame_id = gyro_link_frame;
+
   auto odom_tf_msg = std::make_shared<geometry_msgs::msg::TransformStamped>();
   odom_tf_msg->header.frame_id = odom_frame;
   odom_tf_msg->child_frame_id = base_link_frame;
-  ecl::LegacyPose2D<double> pose;
+
+  auto battery_msg = std::make_shared<sensor_msgs::msg::BatteryState>();
+  battery_msg->header.frame_id = base_link_frame;
 
   auto imu_tf_msg = std::make_shared<geometry_msgs::msg::TransformStamped>();
   imu_tf_msg->header.frame_id = base_link_frame;
   imu_tf_msg->child_frame_id = gyro_link_frame;
 
+  ecl::LegacyPose2D<double> pose;
+
   while (rclcpp::ok()) {
     rcutils_time_point_value_t now;
     double gyro_yaw, gyro_vyaw;
+    kobuki::Battery battery;
     ecl::LegacyPose2D<double> pose_update;
     ecl::linear_algebra::Vector3d pose_update_rates;
     {
@@ -133,14 +144,17 @@ int main(int argc, char * argv[])
       g_kobuki->updateOdometry(pose_update, pose_update_rates);
       gyro_yaw = g_kobuki->getHeading();
       gyro_vyaw = g_kobuki->getAngularVelocity();
+      battery = g_kobuki->batteryStatus();
       if (rcutils_system_time_now(&now) != RCUTILS_RET_OK) {
         RCLCPP_ERROR(node->get_logger(), "Failed to get system time");
       }
+      // Timeout at 10hz
       if ((now - g_last_cmd_vel_time) > 200) {
         g_kobuki->setBaseControl(0.0, 0.0);
         g_last_cmd_vel_time = now;
       }
     }
+
     pose *= pose_update;
 
     // Stuff and publish /odom
@@ -243,6 +257,26 @@ int main(int argc, char * argv[])
     imu_tf_msg->transform.rotation.w = 1.0;
 
     br.sendTransform(*imu_tf_msg);
+
+    battery_msg->voltage = battery.voltage;
+    switch (battery.charging_state) {
+      case kobuki::Battery::Discharging:
+        battery_msg->power_supply_status =
+          sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_DISCHARGING;
+        break;
+      case kobuki::Battery::Charged:
+        battery_msg->power_supply_status =
+          sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_FULL;
+        break;
+      case kobuki::Battery::Charging:
+        battery_msg->power_supply_status =
+          sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING;
+        break;
+    }
+    battery_msg->percentage = battery.percent();
+    battery_msg->present = true;
+    battery_msg->header.stamp = imu_msg->header.stamp;
+    battery_pub->publish(*battery_msg);
 
     rclcpp::spin_some(node);
     loop_rate.sleep();
