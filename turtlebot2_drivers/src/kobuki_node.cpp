@@ -157,20 +157,20 @@ int main(int argc, char * argv[])
     odom_msg->pose.pose.orientation.z = q.z();
     odom_msg->pose.pose.orientation.w = q.w();
 
-    for (unsigned int i = 0; i < odom_msg->pose.covariance.size(); ++i) {
-      odom_msg->pose.covariance[i] = 0.0;
-    }
-    // Pose covariance (required by robot_pose_ekf) TODO: publish realistic values
-    // Odometry yaw covariance must be much bigger than the covariance provided
-    // by the imu, as the later takes much better measures
-    odom_msg->pose.covariance[0] = 0.1;
-    odom_msg->pose.covariance[7] = 0.1;
-    // odom_msg->pose.covariance[35] = use_imu_heading ? 0.05 : 0.2;
-    odom_msg->pose.covariance[35] = 0.2;
-
-    odom_msg->pose.covariance[14] = DBL_MAX;  // set a non-zero covariance on unused
-    odom_msg->pose.covariance[21] = DBL_MAX;  // dimensions (z, pitch and roll); this
-    odom_msg->pose.covariance[28] = DBL_MAX;  // is a requirement of robot_pose_ekf
+    // for (unsigned int i = 0; i < odom_msg->pose.covariance.size(); ++i) {
+    //   odom_msg->pose.covariance[i] = 0.0;
+    // }
+    // // Pose covariance (required by robot_pose_ekf) TODO: publish realistic values
+    // // Odometry yaw covariance must be much bigger than the covariance provided
+    // // by the imu, as the later takes much better measures
+    // odom_msg->pose.covariance[0] = 0.1;
+    // odom_msg->pose.covariance[7] = 0.1;
+    // // odom_msg->pose.covariance[35] = use_imu_heading ? 0.05 : 0.2;
+    // odom_msg->pose.covariance[35] = 0.2;
+    //
+    // odom_msg->pose.covariance[14] = DBL_MAX;  // set a non-zero covariance on unused
+    // odom_msg->pose.covariance[21] = DBL_MAX;  // dimensions (z, pitch and roll); this
+    // odom_msg->pose.covariance[28] = DBL_MAX;  // is a requirement of robot_pose_ekf
 
     odom_msg->twist.twist.linear.x = pose_update_rates[0];
     odom_msg->twist.twist.linear.y = pose_update_rates[1];
